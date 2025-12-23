@@ -1,4 +1,7 @@
 streamlit
 pandas
+numpy
 sqlmodel
-psycopg2-binary
+yfinance
+requests
+streamlit-option-menu
