@@ -4,10 +4,9 @@ from datetime import date
 from sqlmodel import select, desc
 import time
 import streamlit.components.v1 as components
-# Removido: import base64
 
 # --- CONFIGURAÇÕES DO PROJETO ---
-VERSAO_SISTEMA = "1.0.5"
+VERSAO_SISTEMA = "1.0.7" # Versão atualizada com melhoria de contraste
 ANO_COPYRIGHT = "2025"
 NOME_INSTITUICAO = "Guriatã Tecnologia Educacional"
 
@@ -26,6 +25,7 @@ try:
     from src.controllers.balanco_controller import gerar_dados_balanco
     from src.controllers.razonete_controller import obter_dados_razonetes
 except ImportError:
+    # Fallback para caso a estrutura de pastas seja diferente localmente
     from database import (
         create_db_and_tables, populate_initial_data, get_session, salvar_lancamento, 
         limpar_todos_lancamentos, deletar_usuario_por_id, limpar_lancamentos_por_usuario,
@@ -44,18 +44,44 @@ st.set_page_config(page_title="Guriatã - Gestão Contábil", layout="wide", pag
 create_db_and_tables()
 populate_initial_data()
 
-# --- CSS GLOBAL ---
+# --- CSS GLOBAL (AJUSTADO PARA CONTRASTE E ESPAÇAMENTO) ---
 st.markdown(f"""
 <style>
-    /* Estilos Gerais */
-    .block-container {{padding-top: 1rem; padding-bottom: 2rem; max-width: 100%;}}
+    /* 1. Ajustes de Layout (Espaçamento) */
+    .block-container {{
+        padding-top: 1.5rem; 
+        padding-bottom: 2rem; 
+        max-width: 100%;
+    }}
     
-    /* Alinhamento da logo nas telas de login/páginas */
+    div[data-testid="stVerticalBlock"] > div {{
+        gap: 0.5rem;
+    }}
+
+    /* 2. MELHORIA DE CONTRASTE DOS CAMPOS (INPUTS) */
+    /* Afeta: Texto, Número, Data */
+    .stTextInput > div > div, 
+    .stNumberInput > div > div, 
+    .stDateInput > div > div {{
+        background-color: #ffffff !important; /* Fundo Branco */
+        border: 1px solid #a0a0a0 !important; /* Borda Cinza Visível */
+        color: #000000 !important;
+        border-radius: 5px;
+    }}
+    
+    /* Afeta: Caixas de Seleção (Selectbox) */
+    div[data-baseweb="select"] > div {{
+        background-color: #ffffff !important;
+        border: 1px solid #a0a0a0 !important;
+        color: #000000 !important;
+        border-radius: 5px;
+    }}
+
+    /* 3. Estilos da Logo e Sidebar */
     div[data-testid="stImage"] {{display: flex; justify-content: flex-end; align-items: center; padding-right: 20px;}}
-    
-    /* Reset do alinhamento da logo na sidebar para centralizar */
     [data-testid="stSidebar"] div[data-testid="stImage"] {{justify-content: center; padding-right: 0px;}}
 
+    /* 4. Estilos dos Razonetes */
     .razonete-container {{border: 1px solid #ddd; border-radius: 5px; padding: 10px; background-color: #ffffff; margin-bottom: 20px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); page-break-inside: avoid;}}
     .razonete-header {{text-align: center; font-weight: bold; border-bottom: 2px solid #333; padding-bottom: 5px; margin-bottom: 5px; color: #333; font-size: 1.1em;}}
     .razonete-body {{display: flex; min-height: 100px;}}
@@ -65,7 +91,7 @@ st.markdown(f"""
     
     .footer-text {{font-size: 0.8em; color: gray; text-align: center; margin-top: 20px;}}
 
-    /* Modo Impressão */
+    /* 5. Modo Impressão */
     @media print {{
         [data-testid="stSidebar"], header, footer, .stButton, .stTextInput, .stSelectbox, .stDateInput, .stNumberInput, button[title="View fullscreen"], .stDeployButton, [data-testid="stExpander"] {{
             display: none !important;
@@ -114,12 +140,26 @@ def verificar_credenciais():
 
 def realizar_logout(): st.session_state["usuario_logado"] = None; st.rerun()
 
-def criar_novo_usuario(username, senha, nome, perfil):
-    session = get_session()
-    if session.exec(select(Usuario).where(Usuario.username == username)).first(): return False, "Usuário já existe!"
-    session.add(Usuario(username=username, senha=senha, nome=nome, perfil=perfil))
-    session.commit()
-    return True, f"Usuário {nome} criado!"
+# --- FUNÇÕES DE CADASTRO COM LIMPEZA DE CAMPOS ---
+def callback_criar_usuario():
+    u = st.session_state.get("k_new_user", "")
+    p = st.session_state.get("k_new_pass", "")
+    n = st.session_state.get("k_new_name", "")
+    perf = st.session_state.get("k_new_perf", "aluno")
+
+    if n and u and p:
+        session = get_session()
+        if session.exec(select(Usuario).where(Usuario.username == u)).first():
+             st.toast("⚠️ Usuário já existe!", icon="⚠️")
+        else:
+            session.add(Usuario(username=u, senha=p, nome=n, perfil=perf))
+            session.commit()
+            st.toast(f"✅ Usuário {n} criado com sucesso!", icon="✅")
+            st.session_state["k_new_user"] = ""
+            st.session_state["k_new_pass"] = ""
+            st.session_state["k_new_name"] = ""
+    else:
+        st.toast("⚠️ Preencha todos os campos.", icon="⚠️")
 
 if not st.session_state["usuario_logado"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -127,7 +167,6 @@ if not st.session_state["usuario_logado"]:
     with col_logo: st.image("assets/logo.png", width=350)
     with col_form:
         st.markdown("### Acesso ao Sistema")
-        # REMOVIDO AQUI: st.caption(f"v{VERSAO_SISTEMA}")
         with st.form("form_login"):
             st.text_input("Usuário", key="login_user")
             st.text_input("Senha", type="password", key="login_pass")
@@ -170,6 +209,32 @@ def widget_filtro_data():
         d_fim = c2.date_input("Data Final", value=date.today())
     return d_inicio, d_fim
 
+# --- CALLBACK PARA LANÇAMENTOS ---
+def callback_salvar_lancamento():
+    dt = st.session_state.get("k_data", date.today())
+    val = st.session_state.get("k_valor", 0.0)
+    hist = st.session_state.get("k_hist", "")
+    deb = st.session_state.get("k_debito")
+    cred = st.session_state.get("k_credito")
+
+    if deb and cred and val > 0 and deb != cred:
+        novo_lancamento = Lancamento(
+            data_lancamento=dt, 
+            historico=hist, 
+            valor=val, 
+            conta_debito=deb.split(" - ")[0], 
+            conta_credito=cred.split(" - ")[0], 
+            usuario_id=usuario_atual.id
+        )
+        salvar_lancamento(novo_lancamento)
+        st.toast("✅ Lançamento salvo com sucesso!", icon="💾")
+        st.session_state["k_valor"] = 0.0
+        st.session_state["k_hist"] = ""
+        st.session_state["k_debito"] = None
+        st.session_state["k_credito"] = None
+    else:
+        st.toast("❌ Erro: Verifique contas (não podem ser iguais) e valor.", icon="❌")
+
 # --- PÁGINAS ---
 if menu == "Plano de Contas":
     st.header("Plano de Contas")
@@ -185,23 +250,24 @@ if menu == "Plano de Contas":
 elif menu == "Novo Lançamento":
     st.header("📝 Escrituração")
     st.caption(aviso_modo)
+    
     col1, col2 = st.columns(2)
     with col1:
-        data_op = st.date_input("Data do Fato", value=date.today(), max_value=date.today(), help="Data em que o fato contábil ocorreu.")
-        valor = st.number_input("Valor (R$)", min_value=0.01, step=10.00, help="Valor financeiro da transação.")
+        st.date_input("Data do Fato", value=date.today(), max_value=date.today(), key="k_data")
+        st.number_input("Valor (R$)", min_value=0.00, step=10.00, key="k_valor")
     with col2:
-        historico = st.text_input("Histórico", help="Descreva brevemente o que aconteceu.")
+        st.text_input("Histórico", help="Breve descrição", key="k_hist")
+    
     st.divider()
     lista = carregar_contas_analiticas()
     c_deb, c_cred = st.columns(2)
-    with c_deb: conta_deb = st.selectbox("Débito (Destino/Aplicação)", lista, index=None, help="Conta que recebe o recurso.")
-    with c_cred: conta_cred = st.selectbox("Crédito (Origem/Fonte)", lista, index=None, help="Conta de onde sai o recurso.")
-    if st.button("💾 Salvar Lançamento", type="primary"):
-        if conta_deb and conta_cred and valor > 0 and conta_deb != conta_cred:
-            novo_lancamento = Lancamento(data_lancamento=data_op, historico=historico, valor=valor, conta_debito=conta_deb.split(" - ")[0], conta_credito=conta_cred.split(" - ")[0], usuario_id=usuario_atual.id)
-            salvar_lancamento(novo_lancamento)
-            st.success("Lançamento salvo com sucesso!"); time.sleep(1); st.rerun()
-        else: st.error("Erro nos dados: Verifique contas e valores.")
+    with c_deb: 
+        st.selectbox("Débito (Destino/Aplicação)", lista, index=None, placeholder="Selecione...", key="k_debito")
+    with c_cred: 
+        st.selectbox("Crédito (Origem/Fonte)", lista, index=None, placeholder="Selecione...", key="k_credito")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.button("💾 Salvar Lançamento", type="primary", on_click=callback_salvar_lancamento)
 
 elif menu == "Diário (Extrato)":
     st.header("📖 Diário Contábil")
@@ -286,16 +352,18 @@ elif menu == "Balanço Patrimonial":
 elif menu == "Gestão de Usuários":
     st.header("👥 Gestão de Usuários")
     opcoes = ["aluno", "professor", "admin"] if perfil == 'admin' else ["aluno"]
+    
     with st.expander("➕ Cadastrar Novo Usuário", expanded=True):
-        with st.form("new_user"):
-            n = st.text_input("Nome"); u = st.text_input("Login"); p = st.text_input("Senha", type="password")
-            perf = st.selectbox("Perfil", opcoes)
-            if st.form_submit_button("Cadastrar"):
-                if n and u and p:
-                    ok, msg = criar_novo_usuario(u, p, n, perf)
-                    if ok: st.success(msg); time.sleep(1); st.rerun()
-                    else: st.error(msg)
-                else: st.warning("Preencha tudo.")
+        col_cad1, col_cad2 = st.columns(2)
+        with col_cad1:
+            st.text_input("Nome", key="k_new_name")
+            st.text_input("Login", key="k_new_user")
+        with col_cad2:
+            st.text_input("Senha", type="password", key="k_new_pass")
+            st.selectbox("Perfil", opcoes, key="k_new_perf")
+        
+        st.button("Cadastrar", on_click=callback_criar_usuario)
+
     st.divider()
     st.subheader("🔐 Alterar Senhas")
     if perfil == 'admin': users_change = session.exec(select(Usuario)).all()
